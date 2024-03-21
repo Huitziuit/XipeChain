@@ -2,6 +2,7 @@ from hashlib import sha256
 from os import system
 import time
 from pymongo import MongoClient
+import pymongo
 
 
 
@@ -41,16 +42,29 @@ class Block:
             return 0
         
 class Blockchain():
-    difficulty = 2
+    difficulty = 3
 
-    def __init__(self, collection_blockchain) -> None:
+    def __init__(self,db, collection_blockchain, collection_users) -> None:
         self.collection_blockchain = collection_blockchain
+        self.collection_users = collection_users
+        self.db=db
 
         #Para la parte visual
         self.hashesd = []
         self.bestHash = "0"
         self.bestScore= 0
         self.count = 0
+
+        # si la DB esta vacia entonces agrega el genesis
+        if collection_blockchain.count_documents({}) == 0 and collection_blockchain.count_documents({}) == 0:
+            #screenshot db empty
+            md5_db = db.command({'dbhash': 1})['collections']['users']
+            system("cls")
+            input(f"Se detecto DB vacia, Creando genesis con semilla -> {md5_db}")
+            #Minamos el genesis
+            genBlock=Block(md5_db, collection_blockchain)
+            self.mine(genBlock)
+            system("cls")
 
     def add(self, block):
         self.collection_blockchain.insert_one({
@@ -87,13 +101,10 @@ class Blockchain():
         return True
 
 
-    def mineScreenshotDB(self, block):
-        #tomo captura de la DB
-        
-
-        #revisa si la DB esta vacia
+    def validateWithoutMine(self):
         last_block = self.collection_blockchain.find().sort('_id', -1).limit(5)
         
+        #revisa si la bc esta vacia
         if self.collection_blockchain.count_documents({}) > 0:
             last_block = last_block[0]
             if self.blockChainValidation(20, str(last_block['index'])):
@@ -101,28 +112,12 @@ class Blockchain():
                 return False
             else:
                 pause = input('---- SUCCESSFULLY VERIFIED BLOCKS ----')
-       
-
-
-
-        while True:
-            if block.hash[:self.difficulty] == "7" * self.difficulty:  
-                self.add(block)
-                pause = input("OKEY, BLOCK HASH "+ block.hash)
-                break
-            else:
-                
-                self.visualConsole(block)
-                
-                block.pW += 1
-                block.hash = block.hashGenerate()
-        return True
+                return True
 
     def blockChainValidation(self, count_limit_blocks, block_init_validation_index):
         current_block= self.collection_blockchain.find_one({'index':block_init_validation_index})
         previous_block= self.collection_blockchain.find_one({'index':str(int(block_init_validation_index)-1)})
         
-
         flag_error_hashes=False
         
         if int(current_block['index']) < count_limit_blocks-1:
@@ -144,7 +139,7 @@ class Blockchain():
             current_block = previous_block
             previous_block = self.collection_blockchain.find_one({'index':str(int(current_block['index'])-1)})
 
-        #genesis block
+        #ultimo bloque por revisar en el caso de ser el unico es el bloque actual
         content_block = "DATA: " + current_block['data'] + " & PREVIOUS HASH: " + current_block['previous_hash_block'] + " & PW: " + str(current_block['pW']) + " & timestamp: " + str(current_block['timestamp'])
         current_block_hash = sha256(content_block.encode()).hexdigest()
         if current_block_hash != current_block['hash']:
@@ -186,30 +181,41 @@ class Blockchain():
     def getBlocks(self,registers):
         lastReg = self.collection_blockchain.find().sort([("_id", -1)]).limit(registers)
         return lastReg
-                    
+
+    def verifySyncWithDB(self):
+        DB_screenshot = self.db.command({'dbhash': 1})['collections']['users']
+
+        last_reg = self.collection_blockchain.find_one(sort=[('_id', pymongo.DESCENDING)], limit=1)
+        content_block = "DATA: " + DB_screenshot + " & PREVIOUS HASH: " + last_reg['previous_hash_block'] + " & PW: " + str(last_reg['pW']) + " & timestamp: " + str(last_reg['timestamp'])
+        last_reg_hash = sha256(content_block.encode()).hexdigest()
+        print(last_reg)
+        print(last_reg_hash)
+        print(DB_screenshot)
+        if last_reg_hash != last_reg['hash']:
+            print('BC no sync with DB')
+            input("")
+            return False
+        else:
+            print('BC sync')
+            input("")
+            return True
 
 class UserActions:
-    def __init__(self, client):
-        self.client = client
-        
+    def __init__(self,db,collection_blockchain,collection_users):
+        self.db = db
+        self.collection_users = collection_users
+        self.collection_blockchain = collection_blockchain
 
     def validate_email(self, email):
-        # Seleccionar la colección "users"
-        collection_users = self.client["BC_H"]["users"]
-
         # Verificar si el correo electrónico ya existe en la colección
-        usuario_existente = collection_users.find_one({"email": email})
-
+        usuario_existente = self.collection_users.find_one({"email": email})
         return usuario_existente
 
     def reg_user(self, email, password, name):
-        # Seleccionar la colección "users"
-        collection_users = self.client["BC_H"]["users"]
-
         # Verificar si el correo electrónico ya está en uso
         if self.validate_email(email):
             print("El correo electrónico ya está en uso.")
-            return
+            return False
 
         # Crear un nuevo usuario con la lista de monederos vacía
         new_user = {
@@ -220,10 +226,11 @@ class UserActions:
         }
 
         # Insertar el nuevo usuario en la colección
-        result = collection_users.insert_one(new_user)
+        result = self.collection_users.insert_one(new_user)
 
         # Imprimir el ID del usuario insertado
         print("Usuario registrado con el ID:", result.inserted_id)
+        return True
 
     def login(self, email, password):
         # Verificar las credenciales proporcionadas en la base de datos
@@ -239,7 +246,8 @@ class UserActions:
         else:
             print("El correo electrónico proporcionado no está registrado.")
 
-
+    def DB_void(self):
+        db["col1"].count_documents({}) == 0
 
 def main():
     # Conection MongoDB
@@ -247,12 +255,13 @@ def main():
     client = MongoClient(Mongo_URI)
     db = client['BC_H']
     collection_blockchain = db['blockchain']
+    collection_users = db['users']
 
     #init blockchain
-    blockchain = Blockchain(collection_blockchain)
+    blockchain = Blockchain(db,collection_blockchain, collection_users)
 
     #init user actions
-    user_act = UserActions(client)
+    user_act = UserActions(db,collection_blockchain,collection_users)
     md5_db = db.command({'dbhash': 1})['md5']
     print(md5_db)
 
@@ -306,16 +315,22 @@ o88888"888"88o.  "8888"".88   .oo888oo..
         elif option == 3:
             notExit = False
         elif option == 4:
-            email = input("Email: ")
-            password = input("Password: ")
-            name = input("Name: ")
-            user_act.reg_user(email, password, name)
+            if(blockchain.verifySyncWithDB() and blockchain.validateWithoutMine()):
+                email = input("Email: ")
+                password = input("Password: ")
+                name = input("Name: ")
+                if user_act.reg_user(email, password, name):
+                    data_block = db.command({'dbhash': 1})['collections']['users']
+                    new_block=Block(data_block, collection_blockchain)
+                    blockchain.mine(new_block)
+                    system("cls")
         elif option == 5:
-            email = input("Email: ")
-            password = input("Password: ")
-            session_name = user_act.login(email, password) 
-            if (session_name):
-                print(user_act.session_user)
+            if(blockchain.verifySyncWithDB()):
+                email = input("Email: ")
+                password = input("Password: ")
+                session_name = user_act.login(email, password) 
+                if (session_name):
+                    print(user_act.session_user)
         else:
             print("Invalid option.")
 
@@ -324,3 +339,5 @@ o88888"888"88o.  "8888"".88   .oo888oo..
 
 if __name__ == "__main__":
     main()
+
+

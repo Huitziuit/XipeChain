@@ -3,11 +3,6 @@ from os import system
 import time
 from pymongo import MongoClient
 
-# Conexión a MongoDB
-Mongo_URI = 'mongodb://localhost'
-client = MongoClient(Mongo_URI)
-db = client['BC_H']
-bd_blockchain = db['blockchain']
 
 
 class Block:
@@ -64,6 +59,29 @@ class Blockchain:
         })
 
     def mine(self, block):
+        last_block = bd_blockchain.find().sort('_id', -1).limit(5)
+        
+        if bd_blockchain.count_documents({}) > 0:
+            last_block = last_block[0]
+            if self.blockChainValidation(20, str(last_block['index'])):
+                pause = input('---- CORRUPT BLOCKS PREVENTED MINING ----')
+                return False
+            else:
+                pause = input('---- SUCCESSFULLY VERIFIED BLOCKS ----')
+        while True:
+            if block.hash[:self.difficulty] == "7" * self.difficulty:  
+                self.add(block)
+                pause = input("OKEY, BLOCK HASH "+ block.hash)
+                break
+            else:
+                
+                self.visualConsole(block)
+                
+                block.pW += 1
+                block.hash = block.hashGenerate()
+        return True
+
+    def mineScreenshotDB():
         last_block = bd_blockchain.find().sort('_id', -1).limit(5)
         
         if bd_blockchain.count_documents({}) > 0:
@@ -156,26 +174,89 @@ class Blockchain:
         return lastReg
                     
 
-blockchain = Blockchain()
-meta_data_db_hash = db.command({'dbhash': 1, 'collections': 'blockchain'})
-md5_db = meta_data_db_hash['md5']
-print(md5_db)
+class UserActions:
+    def __init__(self, client):
+        self.client = client
+        
 
-#print(blockchain.blockChainValidation(20,'3'))
-print("""                ..ooo.
-             .888888888.
-             88"P""T"T888 8o
-         o8o 8.8"8 88o."8o 8o
-        88 . o88o8 8 88."8 88P"o
-       88 o8 88 oo.8 888 8 888 88
-       88 88 88o888" 88"  o888 88
-       88."8o."T88P.88". 88888 88
-       888."888."88P".o8 8888 888                     AGRO - BLOCKCHAIN
-       "888o"8888oo8888 o888 o8P"          
-        "8888.""888P"P.888".88P                       By Erick HUitziuit Morales
-         "88888ooo  888P".o888
-           ""8P"".oooooo8888P
-  .oo888ooo.    8888NICK8P8
+    def validate_email(self, email):
+        # Seleccionar la colección "users"
+        collection_users = self.client["BC_H"]["users"]
+
+        # Verificar si el correo electrónico ya existe en la colección
+        usuario_existente = collection_users.find_one({"email": email})
+
+        return usuario_existente
+
+    def reg_user(self, email, password, name):
+        # Seleccionar la colección "users"
+        collection_users = self.client["BC_H"]["users"]
+
+        # Verificar si el correo electrónico ya está en uso
+        if self.validate_email(email):
+            print("El correo electrónico ya está en uso.")
+            return
+
+        # Crear un nuevo usuario con la lista de monederos vacía
+        new_user = {
+            "email": email,
+            "password": password,
+            "name": name,
+            "wallet": []
+        }
+
+        # Insertar el nuevo usuario en la colección
+        result = collection_users.insert_one(new_user)
+
+        # Imprimir el ID del usuario insertado
+        print("Usuario registrado con el ID:", result.inserted_id)
+
+    def login(self, email, password):
+        # Verificar las credenciales proporcionadas en la base de datos
+        user = self.validate_email(email)
+        if user:
+            # Verificar la contraseña
+            if user["password"] == password:
+                print("Inicio de sesión exitoso. Bienvenido, {}!".format(user["name"]))
+                self.session_user = user 
+                return self.session_user
+            else:
+                print("Contraseña incorrecta. Por favor, inténtalo de nuevo.")
+        else:
+            print("El correo electrónico proporcionado no está registrado.")
+
+
+
+def main():
+    # Conection MongoDB
+    Mongo_URI = 'mongodb://localhost'
+    client = MongoClient(Mongo_URI)
+    db = client['BC_H']
+    bd_blockchain = db['blockchain']
+
+    #init blockchain
+    blockchain = Blockchain()
+
+    #init user actions
+    user_act = UserActions(client)
+    #md5_db = client.blockchain.command({'dbhash': 1, 'collections': 'blockchain'})['md5']
+    #print(md5_db)
+
+    print("""
+            ..ooo.
+         .888888888.
+         88"P""T"T888 8o
+     o8o 8.8"8 88o."8o 8o
+    88 . o88o8 8 88."8 88P"o
+    88 o8 88 oo.8 888 8 888 88
+    88 88 88o888" 88"  o888 88
+    88."8o."T88P.88". 88888 88
+    888."888."88P".o8 8888 888                     AGRO - BLOCKCHAIN
+    "888o"8888oo8888 o888 o8P"          
+     "8888.""888P"P.888".88P                       By Erick Huitziuit Morales García
+      "88888ooo  888P".o888
+        ""8P"".oooooo8888P
+.oo888ooo.    8888NICK8P8
 o88888"888"88o.  "8888"".88   .oo888oo..
  8888" "88 88888.       88".o88888888"888.
  "8888o.""o 88"88o.    o8".888"888"88 "88P
@@ -189,27 +270,43 @@ o88888"888"88o.  "8888"".88   .oo888oo..
                o88
              oo888""")
 
-input("")
-system("cls")
-notExit = True
-while notExit:
-    try:
+    input("")
+    system("cls")
+    notExit = True
+    while notExit:
+        try:
+            option = int(input("1: for mine \n2: for show Blocks\n3: for exit\n4: for register user\n5: for log in\n"))
+        except:
+            option = 0
+        if option == 1:
+            myData = input("BLOCK DATA -> ")
+            userBlock = Block(myData)
+            blockchain.mine(userBlock)
+            system("cls")
+        elif option == 2:
+            regs = blockchain.getBlocks(20)
+            for reg in regs:
+                print(reg["data"])
+            pause = input("")
+            system("cls")
+        elif option == 3:
+            notExit = False
+        elif option == 4:
+            email = input("Email: ")
+            password = input("Password: ")
+            name = input("Name: ")
+            user_act.reg_user(email, password, name)
+        elif option == 5:
+            email = input("Email: ")
+            password = input("Password: ")
+            session_name = user_act.login(email, password) 
+            if (session_name):
+                print(user_act.session_user)
+        else:
+            print("Invalid option.")
 
-        option = int(input("1: for mine \n2: for show Blocks\n3: for exit\n"))
-    except:
-        option = 0
-    if option == 1:
-        myData = input("BLOCK DATA -> ")
-        userBlock = Block(myData)
-        blockchain.mine(userBlock)
-        #pause = input("OKEY, BLOCK HASH "+ userBlock.hash)
-        system("cls")
-    elif option == 2:
-        regs = blockchain.getBlocks(20)
-        for reg in regs:
-            print(reg["data"])
-        pause = input("")
-        system("cls")
+    # Cerrar la conexión a MongoDB
+    client.close()
 
-    else:
-        notExit = 0
+if __name__ == "__main__":
+    main()

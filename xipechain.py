@@ -6,22 +6,24 @@ from pymongo import MongoClient
 
 
 class Block:
-    def __init__(self, data) -> None:
+    def __init__(self, data, collection_blockchain) -> None:
+        self.collection_blockchain = collection_blockchain
         self.index = str(self.getPrevious_index()+1)                # num of block
         self.previous_hash_block = self.getPrevious_hash()          # previous hash block
         self.timestamp = time.time()                                # date 
         self.data = data                                            # payload
         self.pW = 0                                                 # nounce proof of work
         self.hash = self.hashGenerate()                             # hash block
-
+        
+        
     def hashGenerate(self):
         content_block = "DATA: " + self.data + " & PREVIOUS HASH: " + self.previous_hash_block + " & PW: " + str(self.pW) + " & timestamp: " + str(self.timestamp)
         return sha256(content_block.encode()).hexdigest()
 
     def getPrevious_hash(self):
-        ultimo_registro = bd_blockchain.find().sort('_id', -1).limit(5)
+        ultimo_registro = self.collection_blockchain.find().sort('_id', -1).limit(5)
 
-        if bd_blockchain.count_documents({}) > 0:
+        if self.collection_blockchain.count_documents({}) > 0:
             # Si hay registros, obtener el valor del último registro y su 'index'
             ultimo_registro = ultimo_registro[0]
             return str(ultimo_registro['hash'])
@@ -29,19 +31,21 @@ class Block:
             return "0" * 64
         
     def getPrevious_index(self):
-        ultimo_registro = bd_blockchain.find().sort('_id', -1).limit(5)
+        ultimo_registro = self.collection_blockchain.find().sort('_id', -1).limit(5)
 
-        if bd_blockchain.count_documents({}) > 0:
+        if self.collection_blockchain.count_documents({}) > 0:
             # Si hay registros, obtener el valor del último registro y su 'index'
             ultimo_registro = ultimo_registro[0]
             return int(ultimo_registro['index'])
         else:
             return 0
         
-class Blockchain:
+class Blockchain():
     difficulty = 2
 
-    def __init__(self) -> None:
+    def __init__(self, collection_blockchain) -> None:
+        self.collection_blockchain = collection_blockchain
+
         #Para la parte visual
         self.hashesd = []
         self.bestHash = "0"
@@ -49,7 +53,7 @@ class Blockchain:
         self.count = 0
 
     def add(self, block):
-        bd_blockchain.insert_one({
+        self.collection_blockchain.insert_one({
             "index": block.index,
             "previous_hash_block": block.previous_hash_block,
             "timestamp": block.timestamp,
@@ -59,9 +63,10 @@ class Blockchain:
         })
 
     def mine(self, block):
-        last_block = bd_blockchain.find().sort('_id', -1).limit(5)
+        last_block = self.collection_blockchain.find().sort('_id', -1).limit(5)
         
-        if bd_blockchain.count_documents({}) > 0:
+        #revisa si la bc esta vacia
+        if self.collection_blockchain.count_documents({}) > 0:
             last_block = last_block[0]
             if self.blockChainValidation(20, str(last_block['index'])):
                 pause = input('---- CORRUPT BLOCKS PREVENTED MINING ----')
@@ -81,16 +86,25 @@ class Blockchain:
                 block.hash = block.hashGenerate()
         return True
 
-    def mineScreenshotDB():
-        last_block = bd_blockchain.find().sort('_id', -1).limit(5)
+
+    def mineScreenshotDB(self, block):
+        #tomo captura de la DB
         
-        if bd_blockchain.count_documents({}) > 0:
+
+        #revisa si la DB esta vacia
+        last_block = self.collection_blockchain.find().sort('_id', -1).limit(5)
+        
+        if self.collection_blockchain.count_documents({}) > 0:
             last_block = last_block[0]
             if self.blockChainValidation(20, str(last_block['index'])):
                 pause = input('---- CORRUPT BLOCKS PREVENTED MINING ----')
                 return False
             else:
                 pause = input('---- SUCCESSFULLY VERIFIED BLOCKS ----')
+       
+
+
+
         while True:
             if block.hash[:self.difficulty] == "7" * self.difficulty:  
                 self.add(block)
@@ -105,8 +119,8 @@ class Blockchain:
         return True
 
     def blockChainValidation(self, count_limit_blocks, block_init_validation_index):
-        current_block= bd_blockchain.find_one({'index':block_init_validation_index})
-        previous_block= bd_blockchain.find_one({'index':str(int(block_init_validation_index)-1)})
+        current_block= self.collection_blockchain.find_one({'index':block_init_validation_index})
+        previous_block= self.collection_blockchain.find_one({'index':str(int(block_init_validation_index)-1)})
         
 
         flag_error_hashes=False
@@ -128,7 +142,7 @@ class Blockchain:
                 break
             print(f'block {current_block['index']} corrupted = {flag_error_hashes}')
             current_block = previous_block
-            previous_block = bd_blockchain.find_one({'index':str(int(current_block['index'])-1)})
+            previous_block = self.collection_blockchain.find_one({'index':str(int(current_block['index'])-1)})
 
         #genesis block
         content_block = "DATA: " + current_block['data'] + " & PREVIOUS HASH: " + current_block['previous_hash_block'] + " & PW: " + str(current_block['pW']) + " & timestamp: " + str(current_block['timestamp'])
@@ -170,7 +184,7 @@ class Blockchain:
             system("cls")
         
     def getBlocks(self,registers):
-        lastReg = bd_blockchain.find().sort([("_id", -1)]).limit(registers)
+        lastReg = self.collection_blockchain.find().sort([("_id", -1)]).limit(registers)
         return lastReg
                     
 
@@ -232,15 +246,15 @@ def main():
     Mongo_URI = 'mongodb://localhost'
     client = MongoClient(Mongo_URI)
     db = client['BC_H']
-    bd_blockchain = db['blockchain']
+    collection_blockchain = db['blockchain']
 
     #init blockchain
-    blockchain = Blockchain()
+    blockchain = Blockchain(collection_blockchain)
 
     #init user actions
     user_act = UserActions(client)
-    #md5_db = client.blockchain.command({'dbhash': 1, 'collections': 'blockchain'})['md5']
-    #print(md5_db)
+    md5_db = db.command({'dbhash': 1})['md5']
+    print(md5_db)
 
     print("""
             ..ooo.
@@ -280,7 +294,7 @@ o88888"888"88o.  "8888"".88   .oo888oo..
             option = 0
         if option == 1:
             myData = input("BLOCK DATA -> ")
-            userBlock = Block(myData)
+            userBlock = Block(myData, collection_blockchain)
             blockchain.mine(userBlock)
             system("cls")
         elif option == 2:

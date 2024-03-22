@@ -42,7 +42,7 @@ class Block:
             return 0
         
 class Blockchain():
-    difficulty = 3
+    difficulty = 2
 
     def __init__(self,db, collection_blockchain, collection_users) -> None:
         self.collection_blockchain = collection_blockchain
@@ -186,17 +186,28 @@ class Blockchain():
         DB_screenshot = self.db.command({'dbhash': 1})['collections']['users']
 
         last_reg = self.collection_blockchain.find_one(sort=[('_id', pymongo.DESCENDING)], limit=1)
-        content_block = "DATA: " + DB_screenshot + " & PREVIOUS HASH: " + last_reg['previous_hash_block'] + " & PW: " + str(last_reg['pW']) + " & timestamp: " + str(last_reg['timestamp'])
-        last_reg_hash = sha256(content_block.encode()).hexdigest()
-        print(last_reg)
-        print(last_reg_hash)
-        print(DB_screenshot)
-        if last_reg_hash != last_reg['hash']:
-            print('BC no sync with DB')
+
+        proofBlock = "DATA: " + DB_screenshot + " & PREVIOUS HASH: " + last_reg['previous_hash_block'] + " & PW: " + str(last_reg['pW']) + " & timestamp: " + str(last_reg['timestamp'])
+
+        last_reg_block = "DATA: " + last_reg['data'] + " & PREVIOUS HASH: " + last_reg['previous_hash_block'] + " & PW: " + str(last_reg['pW']) + " & timestamp: " + str(last_reg['timestamp'])
+
+        proofBlock_hash = sha256(proofBlock.encode()).hexdigest()
+        last_reg_hash = sha256(last_reg_block.encode()).hexdigest()
+        system("cls")
+        print(f' - Data in last block:   {last_reg["data"]}')
+        print(f' - Data Base Screenchot: {DB_screenshot}')
+
+        print(f" * (data of last block + metadata)->HASH   {last_reg_hash}")
+        print(f" * (Data Base Screenchot + metadata)->HASH {proofBlock_hash}")
+
+
+        if proofBlock_hash != last_reg_hash:
+            print('\n ERROR: the blockchain is not synchronized with the database')
             input("")
+            system("cls")
             return False
         else:
-            print('BC sync')
+            print('\nBlockchain synchronized with the database')
             input("")
             return True
 

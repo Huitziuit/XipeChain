@@ -4,6 +4,8 @@ import time
 from pymongo import MongoClient
 import pymongo
 
+from bson import ObjectId
+
 
 
 class Block:
@@ -44,9 +46,10 @@ class Block:
 class Blockchain():
     difficulty = 2
 
-    def __init__(self,db, collection_blockchain, collection_users) -> None:
+    def __init__(self,db, collection_blockchain, collection_users, collection_products) -> None:
         self.collection_blockchain = collection_blockchain
         self.collection_users = collection_users
+        self.collection_products = collection_products
         self.db=db
 
         #Para la parte visual
@@ -56,9 +59,9 @@ class Blockchain():
         self.count = 0
 
         # si la DB esta vacia entonces agrega el genesis
-        if collection_blockchain.count_documents({}) == 0 and collection_blockchain.count_documents({}) == 0:
+        if collection_blockchain.count_documents({}) == 0:
             #screenshot db empty
-            md5_db = db.command({'dbhash': 1})['collections']['users']
+            md5_db = self.getDBscreenshoot()
             system("cls")
             input(f"Se detecto DB vacia, Creando genesis con semilla -> {md5_db}")
             #Minamos el genesis
@@ -108,7 +111,7 @@ class Blockchain():
         if self.collection_blockchain.count_documents({}) > 0:
             last_block = last_block[0]
             if self.blockChainValidation(20, str(last_block['index'])):
-                pause = input('---- CORRUPT BLOCKS PREVENTED MINING ----')
+                pause = input('---- ERROR -> CORRUPT BLOCKS PREVENTED MINING ----')
                 return False
             else:
                 pause = input('---- SUCCESSFULLY VERIFIED BLOCKS ----')
@@ -182,13 +185,14 @@ class Blockchain():
         lastReg = self.collection_blockchain.find().sort([("_id", -1)]).limit(registers)
         return lastReg
 
+    def getDBscreenshoot(self):
+        md5ForBD = self.db.command({'dbhash': 1})['collections']['users'] + self.db.command({'dbhash': 1})['collections']['products']
+        return sha256(md5ForBD.encode()).hexdigest()
+
     def verifySyncWithDB(self):
-        DB_screenshot = self.db.command({'dbhash': 1})['collections']['users']
-
+        DB_screenshot = self.getDBscreenshoot()
         last_reg = self.collection_blockchain.find_one(sort=[('_id', pymongo.DESCENDING)], limit=1)
-
         proofBlock = "DATA: " + DB_screenshot + " & PREVIOUS HASH: " + last_reg['previous_hash_block'] + " & PW: " + str(last_reg['pW']) + " & timestamp: " + str(last_reg['timestamp'])
-
         last_reg_block = "DATA: " + last_reg['data'] + " & PREVIOUS HASH: " + last_reg['previous_hash_block'] + " & PW: " + str(last_reg['pW']) + " & timestamp: " + str(last_reg['timestamp'])
 
         proofBlock_hash = sha256(proofBlock.encode()).hexdigest()
@@ -196,7 +200,6 @@ class Blockchain():
         system("cls")
         print(f' - Data in last block:   {last_reg["data"]}')
         print(f' - Data Base Screenchot: {DB_screenshot}')
-
         print(f" * (data of last block + metadata)->HASH   {last_reg_hash}")
         print(f" * (Data Base Screenchot + metadata)->HASH {proofBlock_hash}")
 
@@ -212,10 +215,11 @@ class Blockchain():
             return True
 
 class UserActions:
-    def __init__(self,db,collection_blockchain,collection_users):
+    def __init__(self,db,collection_blockchain,collection_users,collection_products):
         self.db = db
         self.collection_users = collection_users
         self.collection_blockchain = collection_blockchain
+        self.collection_products = collection_products
 
     def validate_email(self, email):
         # Verificar si el correo electrónico ya existe en la colección
@@ -243,6 +247,26 @@ class UserActions:
         print("Usuario registrado con el ID:", result.inserted_id)
         return True
 
+    def reg_product(self, nameProduct, amountProduct, user_id):
+        # Crear un nuevo usuario con la lista de monederos vacía
+        new_product = {
+            "name": nameProduct,
+            "amount_kg": amountProduct
+        }
+
+        # Insertar el nuevo producto en la colección
+        result = self.collection_products.insert_one(new_product)
+
+        # Imprimir el ID del producto insertado
+        print("Producto agregado con el ID:", result.inserted_id)
+        product_id = result.inserted_id
+
+        # Actualizar la lista de wallet del usuario
+        query = {"_id": user_id}
+        update = {"$push": {"wallet": product_id}}
+        self.collection_users.update_one(query, update)
+        return True
+
     def login(self, email, password):
         # Verificar las credenciales proporcionadas en la base de datos
         user = self.validate_email(email)
@@ -257,8 +281,27 @@ class UserActions:
         else:
             print("El correo electrónico proporcionado no está registrado.")
 
-    def DB_void(self):
-        db["col1"].count_documents({}) == 0
+    def get_user_products(self, user_data):
+
+        user_doc = user_data
+        # Verificar si se encontró el usuario y si tiene la lista de wallet
+        if 'wallet' in user_data:
+            # Obtener la lista de IDs de productos en la wallet del usuario
+            wallet_ids = user_data['wallet']
+
+            # Buscar los documentos de productos correspondientes a los IDs en la wallet
+            products = self.collection_products.find({"_id": {"$in": wallet_ids}})
+
+            print("Lista de productos del usuario:")
+            for product in products:
+                print(product)
+
+        else:
+            print("User dont have products in wallet")
+            return None
+    
+    
+
 
 def main():
     # Conection MongoDB
@@ -267,12 +310,13 @@ def main():
     db = client['BC_H']
     collection_blockchain = db['blockchain']
     collection_users = db['users']
+    collection_products = db['products']
 
     #init blockchain
-    blockchain = Blockchain(db,collection_blockchain, collection_users)
+    blockchain = Blockchain(db,collection_blockchain, collection_users, collection_products)
 
     #init user actions
-    user_act = UserActions(db,collection_blockchain,collection_users)
+    user_act = UserActions(db,collection_blockchain,collection_users, collection_products)
     md5_db = db.command({'dbhash': 1})['md5']
     print(md5_db)
 
@@ -331,7 +375,7 @@ o88888"888"88o.  "8888"".88   .oo888oo..
                 password = input("Password: ")
                 name = input("Name: ")
                 if user_act.reg_user(email, password, name):
-                    data_block = db.command({'dbhash': 1})['collections']['users']
+                    data_block = blockchain.getDBscreenshoot()#db.command({'dbhash': 1})['collections']['users']
                     new_block=Block(data_block, collection_blockchain)
                     blockchain.mine(new_block)
                     system("cls")
@@ -339,9 +383,35 @@ o88888"888"88o.  "8888"".88   .oo888oo..
             if(blockchain.verifySyncWithDB()):
                 email = input("Email: ")
                 password = input("Password: ")
-                session_name = user_act.login(email, password) 
-                if (session_name):
+                session_current = user_act.login(email, password) 
+                if (session_current):
                     print(user_act.session_user)
+                    print(session_current)
+                    print(session_current['_id'])
+
+                    # menu logeado
+                    notExitUserMenu = True 
+                    while notExitUserMenu:
+                        optionUser = input('1: logOut\n2: Create product\n3: Buy product\n4: View my wallet')
+                        if optionUser == '1':
+                            notExitUserMenu = False
+                        elif optionUser == '2':
+                            if(blockchain.verifySyncWithDB() and blockchain.validateWithoutMine()):
+                                nameProduct = input('Name of Product: ')
+                                amountProduct = input('Amount in Kg: ')
+                                user_act.reg_product(nameProduct,amountProduct,session_current['_id'])
+                                #add block
+                                data_block = blockchain.getDBscreenshoot()#db.command({'dbhash': 1})['collections']['users']
+                                new_block=Block(data_block, collection_blockchain)
+                                blockchain.mine(new_block)
+                                system("cls")
+                        elif optionUser == '3':
+                            pass
+                        elif optionUser == '4':
+                            user_act.get_user_products(session_current)
+                        else:
+                            pass
+
         else:
             print("Invalid option.")
 

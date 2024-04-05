@@ -186,7 +186,7 @@ class Blockchain():
         return lastReg
 
     def getDBscreenshoot(self):
-        md5ForBD = self.db.command({'dbhash': 1})['collections']['users'] + self.db.command({'dbhash': 1})['collections']['products']
+        md5ForBD = self.db.command({'dbhash': 1})['collections']['users'] + self.db.command({'dbhash': 1})['collections']['products'] + self.db.command({'dbhash': 1})['collections']['transactions']
         return sha256(md5ForBD.encode()).hexdigest()
 
     def verifySyncWithDB(self):
@@ -215,11 +215,12 @@ class Blockchain():
             return True
 
 class UserActions:
-    def __init__(self,db,collection_blockchain,collection_users,collection_products):
+    def __init__(self,db,collection_blockchain,collection_users,collection_products,collection_transactions):
         self.db = db
         self.collection_users = collection_users
         self.collection_blockchain = collection_blockchain
         self.collection_products = collection_products
+        self.collection_transactions = collection_transactions
 
     def validate_email(self, email):
         # Verificar si el correo electrónico ya existe en la colección
@@ -246,6 +247,21 @@ class UserActions:
         # Imprimir el ID del usuario insertado
         print("Usuario registrado con el ID:", result.inserted_id)
         return True
+
+    def reg_transaction(self,id_seller,id_buyer,id_product,value):
+        # make transaction
+        new_transaction = {
+            "id_seller": id_seller,
+            "id_buyer": id_buyer,
+            "id_product": id_product,
+            "purchase_value": value,
+            "date_transaction": time.time()
+        }
+
+        # Insert new transaction in collection
+        result = self.collection_transactions.insert_one(new_transaction)
+        print("Transaction register with ID:", result.inserted_id)
+        
 
     def reg_product(self, nameProduct, amountProduct, user_id):
         # Crear un nuevo usuario con la lista de monederos vacía
@@ -281,9 +297,10 @@ class UserActions:
         else:
             print("El correo electrónico proporcionado no está registrado.")
 
-    def get_user_products(self, user_data):
+    def get_user_products(self, user_id):
 
-        user_doc = user_data
+        user_data = self.collection_users.find_one({'_id': ObjectId(user_id)})
+
         # Verificar si se encontró el usuario y si tiene la lista de wallet
         if 'wallet' in user_data:
             # Obtener la lista de IDs de productos en la wallet del usuario
@@ -292,7 +309,7 @@ class UserActions:
             # Buscar los documentos de productos correspondientes a los IDs en la wallet
             products = self.collection_products.find({"_id": {"$in": wallet_ids}})
 
-            print("Lista de productos del usuario:")
+            print("My Wallet:")
             for product in products:
                 print(product)
 
@@ -300,7 +317,29 @@ class UserActions:
             print("User dont have products in wallet")
             return None
     
-    
+    def product_transaction(self,id_seller, id_buyer, id_product,value_purchase):
+        
+        # Buscar al vendedor y al comprador por su ID
+        seller = self.collection_users.find_one({'_id': ObjectId(id_seller)})
+        buyer = self.collection_users.find_one({'_id': ObjectId(id_buyer)})
+        
+        if seller is None or buyer is None:
+            input("No se encontró uno de los usuarios.")
+            return False
+
+        # Verificar si el vendedor tiene el producto en su wallet
+        if ObjectId(id_product) not in seller['wallet']:
+            input("El vendedor no tiene este producto en su wallet.")
+            return False
+        # Remover el producto de la wallet del vendedor y agregarlo a la del comprador
+        self.collection_users.update_one({'_id': ObjectId(id_seller)}, {'$pull': {'wallet': ObjectId(id_product)}})
+        self.collection_users.update_one({'_id': ObjectId(id_buyer)}, {'$push': {'wallet': ObjectId(id_product)}})
+        
+        # load transaction in collection of transactions
+        self.reg_transaction(id_seller,id_buyer,id_product,value_purchase)
+
+        input("Transferencia realizada con éxito.")
+        return True
 
 
 def main():
@@ -311,12 +350,13 @@ def main():
     collection_blockchain = db['blockchain']
     collection_users = db['users']
     collection_products = db['products']
+    collection_transactions = db['transactions']
 
     #init blockchain
     blockchain = Blockchain(db,collection_blockchain, collection_users, collection_products)
 
     #init user actions
-    user_act = UserActions(db,collection_blockchain,collection_users, collection_products)
+    user_act = UserActions(db,collection_blockchain,collection_users, collection_products, collection_transactions)
     md5_db = db.command({'dbhash': 1})['md5']
     print(md5_db)
 
@@ -385,14 +425,12 @@ o88888"888"88o.  "8888"".88   .oo888oo..
                 password = input("Password: ")
                 session_current = user_act.login(email, password) 
                 if (session_current):
-                    print(user_act.session_user)
                     print(session_current)
-                    print(session_current['_id'])
-
+                    
                     # menu logeado
                     notExitUserMenu = True 
                     while notExitUserMenu:
-                        optionUser = input('1: logOut\n2: Create product\n3: Buy product\n4: View my wallet')
+                        optionUser = input('1: logOut\n2: Create product\n3: Seller product\n4: View my wallet\n')
                         if optionUser == '1':
                             notExitUserMenu = False
                         elif optionUser == '2':
@@ -406,9 +444,17 @@ o88888"888"88o.  "8888"".88   .oo888oo..
                                 blockchain.mine(new_block)
                                 system("cls")
                         elif optionUser == '3':
-                            pass
+                                id_buyer=input('ID Buyer: ')
+                                id_product= input('ID Product')
+                                purchase_value = input("Purchase value")
+                                if user_act.product_transaction(session_current['_id'],id_buyer,id_product,purchase_value):
+                                    #add block
+                                    data_block = blockchain.getDBscreenshoot()#db.command({'dbhash': 1})['collections']['users']
+                                    new_block=Block(data_block, collection_blockchain)
+                                    blockchain.mine(new_block)
+                                    system("cls")
                         elif optionUser == '4':
-                            user_act.get_user_products(session_current)
+                            user_act.get_user_products(session_current['_id'])
                         else:
                             pass
 

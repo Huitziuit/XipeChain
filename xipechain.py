@@ -252,8 +252,8 @@ class UserActions:
         # make transaction
         new_transaction = {
             "id_seller": id_seller,
-            "id_buyer": id_buyer,
-            "id_product": id_product,
+            "id_buyer": ObjectId(id_buyer),
+            "id_product": ObjectId(id_product),
             "purchase_value": value,
             "date_transaction": time.time()
         }
@@ -341,6 +341,38 @@ class UserActions:
         input("Transferencia realizada con éxito.")
         return True
 
+    def history_product(self, id_producto):
+        print('into history product')
+        # Buscar todas las transacciones relacionadas con el producto dado
+        transactions = self.collection_transactions.find({"id_product": ObjectId(id_producto)}).sort("date_transaction")
+        historial = []
+        #print(transactions.next())
+        # Iterar sobre cada transacción
+        for transaction in transactions:
+            print('into for')
+            id_vendedor = transaction['id_seller']
+            id_comprador = transaction['id_buyer']
+            precio_compra = transaction['purchase_value']
+
+            # Obtener nombres del vendedor y comprador
+            vendedor = self.collection_users.find_one({"_id": id_vendedor})['name']
+            print(f'vendedor {vendedor}')
+            comprador = self.collection_users.find_one({"_id": id_comprador})['name']
+
+            # Obtener nombre del producto
+            nombre_producto = self.collection_products.find_one({"_id": ObjectId(id_producto)})['name']
+
+            historial.append({
+                'Producto': nombre_producto,
+                'Vendedor': vendedor,
+                'Comprador': comprador,
+                'Precio de compra': precio_compra
+            })
+        
+        for step_transaction in historial:
+            print(step_transaction)
+        return historial
+
 
 def main():
     # Conection MongoDB
@@ -392,6 +424,7 @@ o88888"888"88o.  "8888"".88   .oo888oo..
     system("cls")
     notExit = True
     while notExit:
+        system("cls")
         try:
             option = int(input("1: for mine \n2: for show Blocks\n3: for exit\n4: for register user\n5: for log in\n"))
         except:
@@ -430,7 +463,7 @@ o88888"888"88o.  "8888"".88   .oo888oo..
                     # menu logeado
                     notExitUserMenu = True 
                     while notExitUserMenu:
-                        optionUser = input('1: logOut\n2: Create product\n3: Seller product\n4: View my wallet\n')
+                        optionUser = input('1: logOut\n2: Create product\n3: Seller product\n4: View my wallet\n5: Track product ')
                         if optionUser == '1':
                             notExitUserMenu = False
                         elif optionUser == '2':
@@ -454,7 +487,12 @@ o88888"888"88o.  "8888"".88   .oo888oo..
                                     blockchain.mine(new_block)
                                     system("cls")
                         elif optionUser == '4':
+                            system("cls")
                             user_act.get_user_products(session_current['_id'])
+                            stop=input()
+                        elif optionUser == '5':
+                            id_track_product = input('ID product: ')
+                            user_act.history_product(id_track_product)
                         else:
                             pass
 
